@@ -1,0 +1,16 @@
+;; shadow-cljs configuration
+{:source-paths
+ ["src/dev"
+  "src/main"
+  "src/test"]
+
+ :dependencies
+ [[cljs-http "0.1.46"]
+  [cljs-ajax "0.8.4"]]
+
+ :builds
+ {:app {:target :browser
+        :output-dir "public/js"
+        :asset-path "js"
+        :modules {:main {:entries
+                         [timetable.core]}}}}}
