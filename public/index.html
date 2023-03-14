@@ -5,13 +5,19 @@
   <body>
     <p>Keikyuu timetable</p>
     <div class="schedule-nav">
-      <button id="button-weekday">weekday</button>
-      <button id="button-holiday-">holiday</button>
+      <input type="radio" id="weekday" name="schedule" checked>
+      <label for="weekday">weekday</label>
+      <input type="radio" id="holiday" name="schedule">
+      <label for="holiday">holiday</label>
     </div>
     <div class="dir-nav">
-      <button id="button-up">up</button>
-      <button id="button-down-">down</button>
+      <input type="radio" id="up" name="dir" checked>
+      <label for="up">up</label>
+      <input type="radio" id="down" name="dir">
+      <label for="down">down</label>
     </div>
+    <table id="data">
+    </table>
     <script src="/js/main.js" type="text/javascript"></script>
   </body>
 </html>
