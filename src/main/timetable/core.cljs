@@ -1,22 +1,13 @@
 (ns timetable.core
   (:require [cljs.reader :as reader]
             [cljs-http.client :as http]
-            [cljs.core.async :refer [<!]]
-            [ajax.core :refer [GET POST]])
+            [cljs.core.async :refer [<! >!]]
+            [cljs.core.async :as async])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
-
-
-(defn add-station [station]
-  (let [table (-> js/document
-                  (.getElementById "data"))
-        row (.insertRow table)
-        cell (.insertCell row)]
-    (.appendChild cell (.createTextNode js/document station))))
-
 (defn add-listeners [update-func]
-  (map #(.addEventListener % "click" update-func)
-       (.getElementsByTagName js/document "input")))
+  (doseq [radio (.getElementsByTagName js/document "input")]
+    (.addEventListener radio "click" update-func)))
 
 (defn get-element-by-id [id]
   (-> js/document
@@ -42,17 +33,26 @@
   (let [time (->> (:stop-list train)
                   (filter #(= station (:station %)))
                   first
-                  :time)]
-    (when time
+                  :time)
+        dest (->> (:stop-list train) last :station)]
+    (println station)
+    (when (and (some? time)
+               (not= dest station))
       {:type (:type train)
        :time time
        :sort-time (time-after-three time)
        :index (:index train)
        :state state
-       :dest (->> (:stop-list train) last :station)})))
+       :dest dest})))
 
 (defn index [state data]
   ((:schedule state) ((:dir state) data)))
+
+(defn get-time-after-three []
+  (let [time (new js/Date)]
+    (minutes-after-three
+     (.getHours time)
+     (.getMinutes time))))
 
 (defn get-stops [data station state]
   (let [time (get-time-after-three)]
@@ -64,19 +64,49 @@
          (drop-while (fn [stop]
                        (< (:sort-time stop) time))))))
 
-(def teststate {:dir :down :schedule :weekday})
-
-(take 3 (get-stops kk "品川" teststate))
-(map (comp :station last :stop-list)
-     (index {:dir :down :schedule :weekday} kk))
-(nth ())
 
 
-(defn get-time-after-three []
-  (let [time (new js/Date)]
-    (minutes-after-three
-     (.getHours time)
-     (.getMinutes time))))
+(defn add-cell [row content]
+  (let [element (if (string? content)
+                  (.createTextNode js/document content)
+                  content)]
+    (-> (.insertCell row)
+        (.appendChild element))))
+
+(defn add-station [station data state num]
+  (let [table (-> js/document
+                  (.getElementById "data"))
+        row (.insertRow table)
+        station-name (if true
+                       (.slice station 0 -1)
+                       station)]
+    (if (= (last "品川駅") "駅")
+      (println "yes")
+      (println "no"))
+    (println (.slice "品川駅" 0 -1))
+    (add-cell row station-name)
+    (println (->> data
+                  (index state)
+                  first
+                  (get-stop station-name state)))
+    (doseq [stop (take num (get-stops data station-name state))]
+      (add-cell row (:time stop)))))
+
+(defn reset []
+  (-> js/document
+      (.getElementById "data")
+      (.-innerHTML)
+      (set! "")))
+
+(defn add-all [stations data state num]
+  (reset)
+  (doseq [station stations]
+    (add-station station data state 3)))
+
+(def state-channel (async/chan))
+
+(add-listeners #(go (>! state-channel (get-state))))
+(async/put! state-channel (get-state))
 
 (go
   (let [trains (->> (<! (http/get "/resources/keikyuu.edn"))
@@ -85,20 +115,7 @@
         stations (->> (<! (http/get "/resources/keikyuu-stations.edn"))
                       (:body)
                       (reader/read-string))]
-    ))
-
-(def resp (doto (new js/XMLHttpRequest)
-            (.open "GET" "/resources/keikyuu.edn")
-            (.send)))
-
-(defn append-index [coll]
-  (map-indexed (fn [i el]
-                 (assoc el :index i)
-                 ) coll))
-
-(def kknoindex (reader/read-string resp.response))
-
-(def kk {:down {:weekday (append-index (:weekday (:down keik)))
-                :holiday (append-index (:holiday (:down keik)))}
-         :up {:weekday (append-index (:weekday (:up keik)))
-              :holiday (append-index (:holiday (:up keik)))}})
+    (println (first (index {:dir :up :schedule :weekday}
+                           trains)))
+    (while true
+      (add-all stations trains (<! state-channel) 3))))
