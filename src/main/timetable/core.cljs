@@ -68,10 +68,6 @@
          (drop-while (fn [stop]
                        (< (:sort-time stop) time))))))
 
-;; (defn type->english [type]
-;;   (-> type
-;;       (.split ":")
-;;       first))
 (defn type->english [type]
   (-> type
       (.split ":")
@@ -122,15 +118,35 @@
                                            :station station})))))
 
 (defn add-stop [row stop station]
-  (-> (add-cell row (stop->html stop))
-      (add-stop-listener stop station)))
+  (when-not (nil? stop)
+    (-> (add-cell row (stop->html stop))
+        (add-stop-listener stop station))))
+
+(def special-stations
+  '("品川"
+    "京急蒲田"
+    "京急川崎"
+    "横浜"
+    "上大岡"
+    "金沢八景"
+    "横須賀中央"
+    "京急久里浜"
+    "ＹＲＰ野比"))
+
+(defn format-station-name [station]
+  (let [special? (boolean (some #{station} special-stations))]
+    (str "<p class=\"station "
+         (if special?
+           "spe-station") "\">" station "</p>")))
 
 (defn add-station [station data state num]
   (let [table (get-element-by-id "data")
-        row (.insertRow table)]
-    (add-cell row station)
-    (doseq [stop (take num (get-stops data station state))]
-      (add-stop row stop station))))
+        row (.insertRow table)
+        stops (get-stops data station state)]
+    (add-cell row (format-station-name station))
+    (doseq [stop (take num stops)]
+      (add-stop row stop station))
+    (add-stop row (last stops) station)))
 
 (defn reset [id]
   (-> (get-element-by-id id)
@@ -139,7 +155,7 @@
 (defn add-all [stations data state num]
   (reset "data")
   (doseq [station stations]
-    (add-station station data state 5)))
+    (add-station station data state 4)))
 
 (defn make-train-info-visible []
   (-> (get-element-by-id "train-info-overlay")
@@ -154,7 +170,9 @@
 
 (defn add-train-info [train station]
   (let [table (get-element-by-id "train-info-table")
-        stop-list (:stop-list train)]
+        stop-list (drop-while #(not= (:station %)
+                                     station)
+                   (:stop-list train))]
     (doseq [stop stop-list]
       (let [row (.insertRow table)]
         (add-cell row (:station stop))
@@ -200,7 +218,7 @@
 
 (init-state)
 
-(def state-channel (async/chan))
+(def state-channel (async/chan 1))
 
 (add-listeners #(go (>! state-channel (get-state))))
 (async/put! state-channel (get-state))
@@ -231,6 +249,7 @@
        :trains (->> (<! (http/get "/resources/keikyuu.edn"))
                     (:body)
                     (reader/read-string))
-       :stations (->> (<! (http/get "/resources/keikyuu-stations.edn"))
+       :stations (->> (<! (http/get
+                           "/resources/keikyuu-stations.edn"))
                       (:body)
                       (reader/read-string))}))

@@ -39,3 +39,8 @@
     border-bottom: 1px solid black;
     padding: 5px;
 }
+
+.spe-station {
+    font-weight: bold;
+    color: darkgreen;
+}
