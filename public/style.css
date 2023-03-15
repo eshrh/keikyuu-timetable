@@ -1,0 +1,41 @@
+.lim-exp {
+    color: darkgreen;
+}
+
+.spe-exp {
+    color: darkred;
+}
+
+.airport-spe {
+    color: darkblue
+}
+
+.airport-lim {
+    color: yellow
+}
+
+#train-info-overlay {
+    position: fixed;
+    display: none;
+    width: fit-content;
+    height: 100%;
+    overflow-y: auto;
+    top: 0;
+    right: 0;
+    background-color: rgba(0,0,0,0.9);
+    color: white;
+}
+
+#train-info-table {
+    color: white;
+}
+
+#data {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#data td {
+    border-bottom: 1px solid black;
+    padding: 5px;
+}

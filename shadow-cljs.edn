@@ -5,8 +5,7 @@
   "src/test"]
 
  :dependencies
- [[cljs-http "0.1.46"]
-  [cljs-ajax "0.8.4"]]
+ [[cljs-http "0.1.46"]]
 
  :builds
  {:app {:target :browser

@@ -13,6 +13,11 @@
   (-> js/document
       (.getElementById id)))
 
+(defn set-innerHTML! [el content]
+  (-> el
+      (.-innerHTML)
+      (set! content)))
+
 (defn get-state []
   (let [up-checked (.-checked (get-element-by-id "up"))
         weekday-checked (.-checked (get-element-by-id "weekday"))]
@@ -35,7 +40,6 @@
                   first
                   :time)
         dest (->> (:stop-list train) last :station)]
-    (println station)
     (when (and (some? time)
                (not= dest station))
       {:type (:type train)
@@ -64,58 +68,169 @@
          (drop-while (fn [stop]
                        (< (:sort-time stop) time))))))
 
+;; (defn type->english [type]
+;;   (-> type
+;;       (.split ":")
+;;       first))
+(defn type->english [type]
+  (-> type
+      (.split ":")
+      first
+      (case
+        "快特" "lim-exp"
+        "特急" "spe-exp"
+        "エアポート急行" "airport-spe"
+        "普通" "local"
+        "エアポート快特" "airport-lim"
+        "")))
 
+(defn stop->id [stop]
+  (let [state (:state stop)]
+    (str (case (:dir state)
+           :up "u"
+           :down "d")
+         (case (:schedule state)
+           :weekday "w"
+           :holiday "h")
+         (:index stop))))
+
+(defn truncate [station]
+  (if (> (count station) 16)
+    (.slice station 0 2)
+    station))
+
+(defn stop->html [stop]
+  (str "<ruby class=\"stop "
+       (type->english (:type stop)) "\""
+       "train-id=\"" (stop->id stop) "\""
+       ">"
+       (:time stop)
+       "<rt>" (truncate (:dest stop)) "</rt>"
+       "</ruby>"))
 
 (defn add-cell [row content]
-  (let [element (if (string? content)
-                  (.createTextNode js/document content)
-                  content)]
-    (-> (.insertCell row)
-        (.appendChild element))))
+  (let [cell (.insertCell row)]
+    (-> cell
+        (set-innerHTML! content))
+    cell))
+
+(def train-clicked-channel (async/chan 1))
+(defn add-stop-listener [stop-el stop station]
+  (-> stop-el
+      (.addEventListener "click" #(go (>! train-clicked-channel
+                                          {:stop stop
+                                           :station station})))))
+
+(defn add-stop [row stop station]
+  (-> (add-cell row (stop->html stop))
+      (add-stop-listener stop station)))
 
 (defn add-station [station data state num]
-  (let [table (-> js/document
-                  (.getElementById "data"))
-        row (.insertRow table)
-        station-name (if true
-                       (.slice station 0 -1)
-                       station)]
-    (if (= (last "品川駅") "駅")
-      (println "yes")
-      (println "no"))
-    (println (.slice "品川駅" 0 -1))
-    (add-cell row station-name)
-    (println (->> data
-                  (index state)
-                  first
-                  (get-stop station-name state)))
-    (doseq [stop (take num (get-stops data station-name state))]
-      (add-cell row (:time stop)))))
+  (let [table (get-element-by-id "data")
+        row (.insertRow table)]
+    (add-cell row station)
+    (doseq [stop (take num (get-stops data station state))]
+      (add-stop row stop station))))
 
-(defn reset []
-  (-> js/document
-      (.getElementById "data")
-      (.-innerHTML)
-      (set! "")))
+(defn reset [id]
+  (-> (get-element-by-id id)
+      (set-innerHTML! "")))
 
 (defn add-all [stations data state num]
-  (reset)
+  (reset "data")
   (doseq [station stations]
-    (add-station station data state 3)))
+    (add-station station data state 5)))
+
+(defn make-train-info-visible []
+  (-> (get-element-by-id "train-info-overlay")
+      (.-style)
+      (.-display)
+      (set! "block")))
+
+(defn reset-train-info []
+  (reset "train-info-type")
+  (reset "train-info-dest")
+  (reset "train-info-table"))
+
+(defn add-train-info [train station]
+  (let [table (get-element-by-id "train-info-table")
+        stop-list (:stop-list train)]
+    (doseq [stop stop-list]
+      (let [row (.insertRow table)]
+        (add-cell row (:station stop))
+        (add-cell row (:time stop))))
+    (-> (get-element-by-id "train-info-type")
+        (set-innerHTML! (str "<p> type: "
+                            (:type train) "</p>")))
+    (-> (get-element-by-id "train-info-dest")
+        (set-innerHTML! (str "<p> dest: "
+                            ((comp :station last) stop-list)
+                            "</p>")))))
+
+(defn show-train-info [trains clicked]
+  (let [stop (:stop clicked)
+        station (:station clicked)
+        train (nth (index (:state stop) trains)
+                   (:index stop))]
+    (reset-train-info)
+    (add-train-info train station)
+    (make-train-info-visible)))
+
+(defn update-time []
+  (-> (get-element-by-id "time")
+      (set-innerHTML! (.toTimeString (new js/Date)))))
+
+(-> js/window (.setInterval update-time 1000))
+
+(defn set-schedule-state [schedule]
+  (-> (get-element-by-id
+       (if (= schedule :weekday) "weekday" "holiday"))
+      (.-checked)
+      (set! true)))
+
+(defn init-state []
+  (let [day (.getDay (new js/Date))
+        time-after-three (get-time-after-three)]
+    (if (or (and (= day 6)
+                 (< time-after-three 1260))
+            (and (= day 0)
+                 (> time-after-three 1260)))
+      (set-schedule-state :holiday)
+      (set-schedule-state :weekday))))
+
+(init-state)
 
 (def state-channel (async/chan))
 
 (add-listeners #(go (>! state-channel (get-state))))
 (async/put! state-channel (get-state))
 
+(def publish-data-channel (async/chan 1))
+(def sub-data-channel (async/pub publish-data-channel :data))
+
+(def subscriber-for-radio-buttons (async/chan 1))
+(async/sub sub-data-channel :all subscriber-for-radio-buttons)
 (go
-  (let [trains (->> (<! (http/get "/resources/keikyuu.edn"))
-                    (:body)
-                    (reader/read-string))
-        stations (->> (<! (http/get "/resources/keikyuu-stations.edn"))
-                      (:body)
-                      (reader/read-string))]
-    (println (first (index {:dir :up :schedule :weekday}
-                           trains)))
+  (let [data (<! subscriber-for-radio-buttons)
+        trains (:trains data)
+        stations (:stations data)]
     (while true
       (add-all stations trains (<! state-channel) 3))))
+
+(def subscriber-for-train-info (async/chan 1))
+(async/sub sub-data-channel :all subscriber-for-train-info)
+
+(go
+  (let [trains (:trains (<! subscriber-for-train-info))]
+    (while true
+      (show-train-info trains (<! train-clicked-channel)))))
+
+(go
+  (>! publish-data-channel
+      {:data :all
+       :trains (->> (<! (http/get "/resources/keikyuu.edn"))
+                    (:body)
+                    (reader/read-string))
+       :stations (->> (<! (http/get "/resources/keikyuu-stations.edn"))
+                      (:body)
+                      (reader/read-string))}))
