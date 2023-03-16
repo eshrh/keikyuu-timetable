@@ -1,0 +1,7 @@
+* Keikyuu timetable
+
+Timetable SPA for the [[https://en.wikipedia.org/wiki/Keikyu][Keikyuu railway lines]] written in clojurescript.
+
+Data is scraped from [[https://ekitan.com][ekitan]] with clojure and [[https://github.com/clj-commons/hickory][hickory]].
+
+Site is accessible here: [[https://rail.esrh.me]].
