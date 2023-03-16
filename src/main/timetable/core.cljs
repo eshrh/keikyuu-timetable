@@ -34,10 +34,13 @@
   (let [[h m] (map js/parseInt (clojure.string/split time ":"))]
     (minutes-after-three h m)))
 
+(defn find-in-stop-list [station train]
+  (->> (:stop-list train)
+       (filter #(= station (:station %)))
+       first))
+
 (defn get-stop [station state train]
-  (let [time (->> (:stop-list train)
-                  (filter #(= station (:station %)))
-                  first
+  (let [time (->> (find-in-stop-list station train)
                   :time)
         dest (->> (:stop-list train) last :station)]
     (when (and (some? time)
@@ -133,20 +136,28 @@
     "京急久里浜"
     "ＹＲＰ野比"))
 
+(defn in? [coll el]
+  (pos? (.indexOf el coll)))
+
 (defn format-station-name [station]
-  (let [special? (boolean (some #{station} special-stations))]
+  (let [special? (in? station special-stations)]
     (str "<p class=\"station "
          (if special?
            "spe-station") "\">" station "</p>")))
+
+(def station-clicked-channel (async/chan 1))
+(defn add-station-name [row station]
+  (-> (add-cell row (format-station-name station))
+      (.addEventListener "click" #(go (>! station-clicked-channel
+                                          station)))))
 
 (defn add-station [station data state num]
   (let [table (get-element-by-id "data")
         row (.insertRow table)
         stops (get-stops data station state)]
-    (add-cell row (format-station-name station))
+    (add-station-name row station)
     (doseq [stop (take num stops)]
-      (add-stop row stop station))
-    (add-stop row (last stops) station)))
+      (add-stop row stop station))))
 
 (defn reset [id]
   (-> (get-element-by-id id)
@@ -155,21 +166,21 @@
 (defn add-all [stations data state num]
   (reset "data")
   (doseq [station stations]
-    (add-station station data state 4)))
+    (add-station station data state 5)))
 
 (defn make-train-info-visible []
-  (-> (get-element-by-id "train-info-overlay")
+  (-> (get-element-by-id "info-overlay")
       (.-style)
       (.-display)
       (set! "block")))
 
 (defn reset-train-info []
-  (reset "train-info-type")
-  (reset "train-info-dest")
-  (reset "train-info-table"))
+  (reset "info-type")
+  (reset "info-station")
+  (reset "info-table"))
 
 (defn add-train-info [train station]
-  (let [table (get-element-by-id "train-info-table")
+  (let [table (get-element-by-id "info-table")
         stop-list (drop-while #(not= (:station %)
                                      station)
                    (:stop-list train))]
@@ -177,10 +188,10 @@
       (let [row (.insertRow table)]
         (add-cell row (:station stop))
         (add-cell row (:time stop))))
-    (-> (get-element-by-id "train-info-type")
+    (-> (get-element-by-id "info-type")
         (set-innerHTML! (str "<p> type: "
                             (:type train) "</p>")))
-    (-> (get-element-by-id "train-info-dest")
+    (-> (get-element-by-id "info-station")
         (set-innerHTML! (str "<p> dest: "
                             ((comp :station last) stop-list)
                             "</p>")))))
@@ -192,6 +203,38 @@
                    (:index stop))]
     (reset-train-info)
     (add-train-info train station)
+    (make-train-info-visible)))
+
+(defn find-last-trains [station stations trains state]
+  (let [stations-in-dir ((if (= (:dir state) :up)
+                           take-while drop-while)
+                         (partial not= station) stations)
+        trains-at-sta (->> trains
+                           (index state)
+                           (filter #(in? station
+                                         (map :station (:stop-list %))))
+                           (sort-by #(time-after-three
+                                      (:time (find-in-stop-list station %)))
+                                    >))]
+    (map (fn [sta]
+           {:dest sta
+            :depart (->> (filter #(some? (find-in-stop-list sta %)) trains-at-sta)
+                         first
+                         (find-in-stop-list station)
+                         :time)})
+         stations-in-dir)))
+
+(defn show-last-trains [station last-trains]
+  (let [table (get-element-by-id "info-table")]
+    (reset-train-info)
+    (-> (get-element-by-id "info-station")
+        (set-innerHTML! (str "<p> from: " station "</p>")))
+    (-> (get-element-by-id "info-type")
+        (set-innerHTML! (str "<p> 終電 </p>")))
+    (doseq [departure last-trains]
+      (let [row (.insertRow table)]
+        (add-cell row (:dest departure))
+        (add-cell row (:depart departure))))
     (make-train-info-visible)))
 
 (defn update-time []
@@ -237,11 +280,23 @@
 
 (def subscriber-for-train-info (async/chan 1))
 (async/sub sub-data-channel :all subscriber-for-train-info)
-
 (go
   (let [trains (:trains (<! subscriber-for-train-info))]
     (while true
       (show-train-info trains (<! train-clicked-channel)))))
+
+(def subscriber-for-last-trains (async/chan 1))
+(async/sub sub-data-channel :all subscriber-for-last-trains)
+(go
+  (let [data (<! subscriber-for-last-trains)
+        trains (:trains data)
+        stations (:stations data)]
+    (while true
+      (let [station-clicked (<! station-clicked-channel)]
+        (show-last-trains station-clicked (find-last-trains
+                                           station-clicked
+                                           stations trains
+                                           (get-state)))))))
 
 (go
   (>! publish-data-channel
